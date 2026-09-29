@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Maze readout</title>
+<style>
+  :root {
+    --fly: #ffc45a;
+    --jev: #e878c4;
+    --ink: #f4f4f6;
+    --dim: #b7b7c2;
+    --panel: rgba(16, 16, 20, 0.82);
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  html, body {
+    margin: 0;
+    width: 1200px;
+    height: 360px;
+    background: transparent;
+    color: var(--ink);
+    font-family: "Avenir Next", "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+  .board {
+    box-sizing: border-box;
+    height: 360px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 8px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px 18px 14px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .card.fly { box-shadow: inset 0 0 0 1px rgba(255, 196, 90, 0.18); }
+  .card.jev { box-shadow: inset 0 0 0 1px rgba(232, 120, 196, 0.22); }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .fly .kicker { color: var(--fly); }
+  .jev .kicker { color: var(--jev); }
+  .headline {
+    margin: 2px 0 8px;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .sub {
+    min-height: 36px;
+    color: var(--dim);
+    font-size: 14px;
+    line-height: 1.3;
+  }
+  .meters { margin-top: 8px; display: grid; gap: 6px; }
+  .meter {
+    display: grid;
+    grid-template-columns: 92px 1fr 52px;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .meter span { color: var(--dim); }
+  .track {
+    height: 8px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 99px;
+    background: var(--fly);
+  }
+  .jev .fill { background: var(--jev); }
+  .meter em {
+    font-style: normal;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .stats {
+    margin-top: auto;
+    display: flex;
+    gap: 14px;
+    padding-top: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat b {
+    display: block;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .stat i {
+    font-style: normal;
+    color: var(--dim);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .choices {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .choice {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 6px 8px;
+    min-width: 0;
+  }
+  .choice strong {
+    display: block;
+    font-size: 11px;
+    color: var(--dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .choice .bar {
+    margin-top: 4px;
+    height: 4px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .choice .bar i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--jev);
+  }
+  .choice em {
+    font-style: normal;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+  <div class="board">
+    <section class="card fly">
+      <div class="kicker">Fruit fly · 166,700 neurons</div>
+      <div class="headline" id="fly-head">waiting</div>
+      <div class="sub" id="fly-sub">MaleCNS is connecting.</div>
+      <div class="meters">
+        <div class="meter"><span>walk</span><div class="track"><div class="fill" id="n-walk"></div></div><em id="v-walk">0%</em></div>
+        <div class="meter"><span>back up</span><div class="track"><div class="fill" id="n-back"></div></div><em id="v-back">0%</em></div>
+        <div class="meter"><span>steer left</span><div class="track"><div class="fill" id="n-left"></div></div><em id="v-left">0%</em></div>
+        <div class="meter"><span>steer right</span><div class="track"><div class="fill" id="n-right"></div></div><em id="v-right">0%</em></div>
+        <div class="meter"><span>escape</span><div class="track"><div class="fill" id="n-escape"></div></div><em id="v-escape">0%</em></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="fly-spikes">0</b><i>spikes</i></div>
+        <div class="stat"><b id="fly-forward">0.00</b><i>forward</i></div>
+        <div class="stat"><b id="fly-turn">0.00</b><i>turn</i></div>
+      </div>
+    </section>
+    <section class="card jev">
+      <div class="kicker">Jev · typesafe/jev-1.13</div>
+      <div class="headline" id="jev-head">waiting</div>
+      <div class="sub" id="jev-sub">Waiting for a decision.</div>
+      <div class="choices" id="jev-choices"></div>
+      <div class="stats">
+        <div class="stat"><b id="jev-conf">0%</b><i>confidence</i></div>
+        <div class="stat"><b id="jev-studs">0</b><i>studs</i></div>
+        <div class="stat"><b id="jev-apple">–</b><i>apple</i></div>
+        <div class="stat"><b id="jev-left">$2.00</b><i>left</i></div>
+      </div>
+    </section>
+  </div>
+<script>
+const CHOICES = ["forward", "turn_left", "turn_right", "back", "idle", "jump"];
+const CHOICE_LABEL = {
+  forward: "forward",
+  turn_left: "left",
+  turn_right: "right",
+  back: "back",
+  idle: "stop",
+  jump: "hop",
+};
+
+function text(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = value;
+}
+
+function bar(id, rate) {
+  const node = document.getElementById(id);
+  const value = Math.max(0, Math.min(1, Number(rate) || 0));
+  if (node) node.style.width = Math.min(100, value * 420) + "%";
+}
+
+function signed(value) {
+  const n = Number(value) || 0;
+  return (n >= 0 ? "+" : "") + n.toFixed(2);
+}
+
+function money(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "–";
+  return "$" + n.toFixed(2);
+}
+
+function bearingWords(degrees) {
+  const d = ((Number(degrees) % 360) + 360) % 360;
+  if (d <= 25 || d >= 335) return "ahead";
+  if (d < 180) return d + "° right";
+  return (360 - d) + "° left";
+}
+
+function flyHeadline(data) {
+  const memory = String(data.memory || "");
+  if (memory.includes("eating the apple")) return "eating";
+  const bout = String(data.bout || "rest");
+  if (bout === "walk") return "walking";
+  if (bout === "fly") return "flying";
+  return bout || "resting";
+}
+
+function jevHeadline(data) {
+  if (data.source === "jev-finished") return "ate the apple";
+  if (data.source === "jev-cap") return "spend cap";
+  const choice = String(data.choice || "idle");
+  const studs = Number(data.studs) || 0;
+  if (choice === "forward" && studs > 0) return "walk " + studs;
+  if (choice === "turn_left") return "turn left";
+  if (choice === "turn_right") return "turn right";
+  if (choice === "idle") return "stopped";
+  if (choice === "back") return "back up";
+  if (choice === "jump") return "hop";
+  return choice;
+}
+
+const flyRows = [
+  ["walk", "n-walk", "v-walk", "DNg100"],
+  ["back", "n-back", "v-back", "MDN"],
+  ["left", "n-left", "v-left", "DNa02_L"],
+  ["right", "n-right", "v-right", "DNa02_R"],
+  ["escape", "n-escape", "v-escape", "DNp01"],
+];
+const flyNow = { walk: 0, back: 0, left: 0, right: 0, escape: 0, spikes: 0, forward: 0, turn: 0 };
+const flyGoal = { walk: 0, back: 0, left: 0, right: 0, escape: 0, spikes: 0, forward: 0, turn: 0 };
+
+function follow(current, goal, dt, seconds) {
+  const blend = 1 - Math.exp(-dt / seconds);
+  return current + (goal - current) * blend;
+}
+
+function paintFly(data) {
+  const neurons = data.neurons || {};
+  text("fly-head", flyHeadline(data));
+  const memory = String(data.memory || "no reading yet");
+  text("fly-sub", memory.length > 110 ? memory.slice(0, 107) + "…" : memory);
+  for (const [key, , , neuron] of flyRows) {
+    flyGoal[key] = Number(neurons[neuron]) || 0;
+  }
+  flyGoal.spikes = Number(data.spikes) || 0;
+  flyGoal.forward = Number(data.forward) || 0;
+  flyGoal.turn = Number(data.turn) || 0;
+}
+
+function drawFly(dt) {
+  for (const [key, barId, labelId] of flyRows) {
+    flyNow[key] = follow(flyNow[key], flyGoal[key], dt, 0.45);
+    bar(barId, flyNow[key]);
+    text(labelId, (flyNow[key] * 100).toFixed(1) + "%");
+  }
+  flyNow.spikes = follow(flyNow.spikes, flyGoal.spikes, dt, 0.7);
+  flyNow.forward = follow(flyNow.forward, flyGoal.forward, dt, 0.4);
+  flyNow.turn = follow(flyNow.turn, flyGoal.turn, dt, 0.4);
+  text("fly-spikes", Math.round(flyNow.spikes).toLocaleString("en-US"));
+  text("fly-forward", signed(flyNow.forward));
+  text("fly-turn", signed(flyNow.turn));
+}
+
+function paintJev(data) {
+  const watch = data.watch || {};
+  text("jev-head", jevHeadline(data));
+  const parts = [];
+  if (watch.ahead != null) parts.push(watch.ahead + " studs open ahead");
+  if (watch.trail) parts.push("trail " + watch.trail);
+  if (watch.last && watch.last !== "none yet") parts.push(String(watch.last));
+  text("jev-sub", parts.join(" · ") || "Waiting for a decision.");
+  text("jev-conf", Math.round((Number(data.confidence) || 0) * 100) + "%");
+  text("jev-studs", String(Number(data.studs) || 0));
+  if (watch.apple_studs != null) {
+    text("jev-apple", watch.apple_studs + " " + bearingWords(watch.apple_degrees));
+  }
+  const cap = Number(data.cap) || 2;
+  const spent = Number(data.spent) || 0;
+  text("jev-left", money(Math.max(0, cap - spent)));
+  const probs = data.probabilities || {};
+  const box = document.getElementById("jev-choices");
+  box.replaceChildren();
+  for (const key of CHOICES) {
+    const cell = document.createElement("div");
+    cell.className = "choice";
+    const label = document.createElement("strong");
+    label.textContent = CHOICE_LABEL[key];
+    const track = document.createElement("div");
+    track.className = "bar";
+    const fill = document.createElement("i");
+    const p = Number(probs[key]) || 0;
+    fill.style.width = Math.round(p * 100) + "%";
+    track.appendChild(fill);
+    const value = document.createElement("em");
+    value.textContent = Math.round(p * 100) + "%";
+    cell.append(label, track, value);
+    box.appendChild(cell);
+  }
+}
+
+async function tick() {
+  try {
+    const [flyRes, jevRes] = await Promise.all([
+      fetch("http://127.0.0.1:8765/"),
+      fetch("http://127.0.0.1:8766/"),
+    ]);
+    if (flyRes.ok) paintFly(await flyRes.json());
+    if (jevRes.ok) paintJev(await jevRes.json());
+  } catch (err) {
+    text("fly-sub", "Readout dropped. The brains are still in the maze.");
+  }
+}
+
+tick();
+setInterval(tick, 250);
+let lastFrame = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+  drawFly(dt);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

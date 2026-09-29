@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Jev inputs</title>
+<style>
+  :root {
+    --pink: #e878c4;
+    --ink: #f4f4f6;
+    --dim: #b7b7c2;
+    --panel: rgba(14, 14, 18, 0.88);
+  }
+  html, body {
+    margin: 0;
+    width: 570px;
+    height: 720px;
+    background: transparent;
+    color: var(--ink);
+    font-family: "Avenir Next", "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+  .card {
+    box-sizing: border-box;
+    width: 570px;
+    height: 720px;
+    background: var(--panel);
+    border-radius: 18px;
+    padding: 16px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .kicker {
+    color: var(--pink);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  canvas {
+    width: 538px;
+    height: 250px;
+    display: block;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+  }
+  .fields {
+    font-family: "SF Mono", "ui-monospace", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dim);
+    white-space: pre-wrap;
+    min-height: 210px;
+  }
+  .fields b { color: var(--ink); font-weight: 600; }
+  .out {
+    margin-top: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 10px;
+  }
+  .choice {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .meta {
+    margin: 4px 0 8px;
+    color: var(--dim);
+    font-size: 13px;
+  }
+  .probs { display: grid; gap: 4px; }
+  .row {
+    display: grid;
+    grid-template-columns: 72px 1fr 36px;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+  }
+  .row span { color: var(--dim); }
+  .track {
+    height: 6px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .track i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--pink);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="kicker">Jev inputs · same maze</div>
+    <canvas id="ring" width="538" height="250"></canvas>
+    <div class="fields" id="fields">waiting for a decision</div>
+    <div class="out">
+      <div class="choice" id="choice">–</div>
+      <div class="meta" id="meta"></div>
+      <div class="probs" id="probs"></div>
+    </div>
+  </div>
+<script>
+const KEYS = ["forward", "turn_left", "turn_right", "back", "idle", "jump"];
+const LABEL = {
+  forward: "forward",
+  turn_left: "left",
+  turn_right: "right",
+  back: "back",
+  idle: "stop",
+  jump: "hop",
+};
+const shown = {};
+const canvas = document.getElementById("ring");
+const ctx = canvas.getContext("2d");
+let goal = null;
+
+function blend(current, next, dt) {
+  return current + (next - current) * (1 - Math.exp(-dt / 0.28));
+}
+
+function words(degrees) {
+  const d = ((Number(degrees) % 360) + 360) % 360;
+  if (d <= 25 || d >= 335) return "ahead";
+  if (d < 180) return Math.round(d) + "° right";
+  return Math.round(360 - d) + "° left";
+}
+
+function headline(data) {
+  if (data.source === "jev-finished") return "ate the apple";
+  const choice = String(data.choice || "idle");
+  const studs = Number(data.studs) || 0;
+  if (choice === "forward" && studs) return "walk " + studs;
+  if (choice === "turn_left") return "turn left";
+  if (choice === "turn_right") return "turn right";
+  if (choice === "back") return "back up";
+  if (choice === "jump") return "hop";
+  if (choice === "idle") return "stop";
+  return choice;
+}
+
+function paintText(data) {
+  const inputs = data.inputs || {};
+  const lines = [];
+  lines.push("goal   follow the apple smell");
+  lines.push("ahead  " + (inputs.ahead_studs ?? "–") + " studs    behind " + (inputs.behind_studs ?? "–"));
+  lines.push("open   " + (inputs.clearest || "–"));
+  if (inputs.apple_studs != null) {
+    lines.push("apple  " + inputs.apple_studs + " studs, " + words(inputs.apple_degrees));
+  }
+  lines.push("trail  ahead " + (inputs.trail_ahead || "–")
+    + "   left " + (inputs.trail_left || "–")
+    + "   right " + (inputs.trail_right || "–"));
+  const memory = Array.isArray(inputs.memory) ? inputs.memory : [];
+  lines.push("");
+  lines.push("memory");
+  for (const line of memory.slice(-4)) lines.push("  " + line);
+  document.getElementById("fields").textContent = lines.join("\n");
+  document.getElementById("choice").textContent = headline(data);
+  const conf = Math.round((Number(data.confidence) || 0) * 100);
+  const left = Math.max(0, (Number(data.cap) || 2) - (Number(data.spent) || 0));
+  document.getElementById("meta").textContent = conf + "% sure · $" + left.toFixed(2) + " left";
+  const probs = data.probabilities || {};
+  const box = document.getElementById("probs");
+  box.replaceChildren();
+  for (const key of KEYS) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const name = document.createElement("span");
+    name.textContent = LABEL[key];
+    const track = document.createElement("div");
+    track.className = "track";
+    const fill = document.createElement("i");
+    const p = Number(probs[key]) || 0;
+    fill.style.width = Math.round(p * 100) + "%";
+    track.appendChild(fill);
+    const value = document.createElement("span");
+    value.textContent = Math.round(p * 100) + "%";
+    row.append(name, track, value);
+    box.appendChild(row);
+  }
+}
+
+function drawRing() {
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h / 2 + 6;
+  const radius = 96;
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+  ctx.stroke();
+  if (!goal) return;
+  const inputs = goal.inputs || {};
+  const distances = inputs.distances_studs || {};
+  for (let bearing = 0; bearing < 360; bearing += 15) {
+    const target = Number(distances[String(bearing)]) || 0;
+    const key = "b" + bearing;
+    shown[key] = blend(shown[key] ?? target, target, 0.016);
+    const reach = Math.max(0, Math.min(1, shown[key] / 48));
+    const rad = bearing * Math.PI / 180;
+    const x = cx + Math.sin(rad) * radius * reach;
+    const y = cy - Math.cos(rad) * radius * reach;
+    ctx.strokeStyle = "rgb(" + Math.round(255 - reach * 180) + "," + Math.round(70 + reach * 160) + ",70)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+  if (inputs.apple_degrees != null) {
+    const rad = Number(inputs.apple_degrees) * Math.PI / 180;
+    const reach = Math.max(0.15, Math.min(1, (Number(inputs.apple_studs) || 48) / 80));
+    const x = cx + Math.sin(rad) * radius * reach;
+    const y = cy - Math.cos(rad) * radius * reach;
+    ctx.fillStyle = "#ff4d55";
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#f4f4f6";
+  ctx.font = "12px sans-serif";
+  ctx.fillText("ahead", cx - 16, cy - radius - 8);
+}
+
+async function poll() {
+  try {
+    const data = await (await fetch("http://127.0.0.1:8766/")).json();
+    goal = data;
+    paintText(data);
+  } catch (err) {
+    document.getElementById("fields").textContent = "waiting for Jev";
+  }
+}
+
+poll();
+setInterval(poll, 200);
+setInterval(drawRing, 32);
+</script>
+</body>
+</html>

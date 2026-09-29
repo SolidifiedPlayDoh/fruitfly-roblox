@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fruit fly brain</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 720px;
+    height: 350px;
+    background: transparent;
+    overflow: hidden;
+    font-family: "Avenir Next", "Segoe UI", sans-serif;
+  }
+  canvas {
+    display: block;
+    width: 720px;
+    height: 350px;
+  }
+  .tag {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+  }
+  .legend {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    display: grid;
+    gap: 3px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.86);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+  }
+  .legend i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    margin-right: 6px;
+  }
+</style>
+</head>
+<body>
+  <canvas id="brain" width="720" height="350"></canvas>
+  <div class="tag">MaleCNS · live spikes</div>
+  <div class="legend">
+    <div><i style="background:#46dcc8"></i>optic lobes</div>
+    <div><i style="background:#ffc45a"></i>central brain</div>
+    <div><i style="background:#7aa2ff"></i>nerve cord</div>
+    <div><i style="background:#ffffff"></i>descending</div>
+  </div>
+<script>
+const W = 720;
+const H = 350;
+const canvas = document.getElementById("brain");
+const ctx = canvas.getContext("2d", { alpha: true });
+const image = ctx.createImageData(W, H);
+const heat = new Float32Array(W * H);
+const base = new Float32Array(W * H);
+const kindOf = new Uint8Array(W * H);
+const kindVotes = [null, new Uint16Array(W * H), new Uint16Array(W * H), new Uint16Array(W * H), new Uint16Array(W * H)];
+const COLORS = [
+  [170, 170, 180],
+  [255, 196, 90],
+  [70, 220, 200],
+  [122, 162, 255],
+  [255, 255, 255],
+];
+let X = null;
+let Y = null;
+let lastSeq = -1;
+let lastFrame = performance.now();
+
+function u32(view, offset) {
+  return view.getUint32(offset, true);
+}
+function u16(view, offset) {
+  return view.getUint16(offset, true);
+}
+
+async function loadLayout() {
+  const buf = await (await fetch("/obs/brain-layout")).arrayBuffer();
+  const view = new DataView(buf);
+  const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  if (magic !== "FLY1") return;
+  const n = u32(view, 4);
+  const placed = u32(view, 16);
+  X = new Uint16Array(n);
+  Y = new Uint16Array(n);
+  X.fill(65535);
+  const indexAt = 20;
+  const xAt = indexAt + placed * 4;
+  const yAt = xAt + placed * 2;
+  const kindAt = yAt + placed * 2;
+  let maxBin = 1;
+  for (let i = 0; i < placed; i++) {
+    const id = u32(view, indexAt + i * 4);
+    const x = u16(view, xAt + i * 2);
+    const y = u16(view, yAt + i * 2);
+    const kind = view.getUint8(kindAt + i);
+    if (id >= n || x >= W || y >= H) continue;
+    X[id] = x;
+    Y[id] = y;
+    const bin = y * W + x;
+    base[bin] += 1;
+    if (base[bin] > maxBin) maxBin = base[bin];
+    const vote = kindVotes[kind] || kindVotes[1];
+    vote[bin] += 1;
+  }
+  for (let i = 0; i < base.length; i++) {
+    base[i] /= maxBin;
+    let best = 0;
+    let bestN = 0;
+    for (let k = 1; k <= 4; k++) {
+      if (kindVotes[k][i] > bestN) {
+        bestN = kindVotes[k][i];
+        best = k;
+      }
+    }
+    kindOf[i] = best;
+  }
+}
+
+function addSpikes(view) {
+  const seq = u32(view, 4);
+  if (seq === lastSeq || !X) return;
+  lastSeq = seq;
+  const count = u32(view, 8);
+  for (let i = 0; i < count; i++) {
+    const id = u32(view, 12 + i * 4);
+    if (id >= X.length) continue;
+    const x = X[id];
+    const y = Y[id];
+    if (x === 65535) continue;
+    const p = y * W + x;
+    heat[p] = Math.min(1.4, heat[p] + 1);
+    for (const n of [p - 1, p + 1, p - W, p + W]) {
+      if (n >= 0 && n < heat.length) heat[n] = Math.min(0.7, heat[n] + 0.25);
+    }
+  }
+}
+
+async function poll() {
+  try {
+    const buf = await (await fetch("/obs/brain-spikes")).arrayBuffer();
+    const view = new DataView(buf);
+    const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+    if (magic === "SPK1") addSpikes(view);
+  } catch (err) {
+    /* the brain picture holds its glow until the next packet */
+  }
+}
+
+function draw(dt) {
+  const fade = Math.exp(-dt / 0.22);
+  const data = image.data;
+  for (let i = 0; i < heat.length; i++) {
+    heat[i] *= fade;
+    const glow = heat[i];
+    const shape = base[i] * 0.07;
+    const lit = shape + glow;
+    const o = i * 4;
+    if (lit < 0.015) {
+      data[o] = 0;
+      data[o + 1] = 0;
+      data[o + 2] = 0;
+      data[o + 3] = 0;
+      continue;
+    }
+    const color = COLORS[kindOf[i]] || COLORS[0];
+    const hot = Math.min(1, glow);
+    data[o] = color[0] + (255 - color[0]) * hot * 0.7;
+    data[o + 1] = color[1] + (255 - color[1]) * hot * 0.7;
+    data[o + 2] = color[2] + (255 - color[2]) * hot * 0.7;
+    data[o + 3] = Math.min(255, lit * 255);
+  }
+  ctx.clearRect(0, 0, W, H);
+  ctx.putImageData(image, 0, 0);
+}
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+  draw(dt);
+  requestAnimationFrame(frame);
+}
+
+loadLayout().then(() => {
+  poll();
+  setInterval(poll, 90);
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>
